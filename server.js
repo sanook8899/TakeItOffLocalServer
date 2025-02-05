@@ -20,6 +20,7 @@ var roundDelayCount = [-1, 4, -1, 2];
 var roundCount = 0;
 var roundCrashValue = 0;
 var currentCrashValue = 0;
+var currentSpeed = 1;
 
 var cashOutCondition = false;
 
@@ -36,6 +37,9 @@ let currentValue = start;
 let currentStep = 0;
 let startTime = Date.now();
 let elapsedTime = 0;
+let intervalId = null; // Store interval reference
+let lastUpdateTime = Date.now(); // Track last update time
+let lastProgress = 0; // Track last recorded progress
 
 
 function generateRandomString(length) {
@@ -66,6 +70,8 @@ function generateRandomInt(length) {
 function generate() {
     currentValue = start;
     currentStep = 0;
+    lastUpdateTime = Date.now(); // Track last update time
+    lastProgress = 0; // Track last recorded progress
 
     const min = 1.00;
     const max = 500.00;
@@ -75,6 +81,8 @@ function generate() {
 };
 
 function loginRequest() {
+    currentSpeed = 1;
+
     playerId = generateRandomString(8);
     balance = 200000;
 
@@ -352,6 +360,41 @@ function cashOutRequest() {
     return response;
 }
 
+function specialRequest() {
+
+    currentSpeed += 1;
+    if (currentSpeed > 3) {
+        currentSpeed = 1;
+    }
+
+    let response = {
+        errCode: 0,
+        errMsg: "success",
+        vals: {},
+    }
+
+    specialInfo = [{
+        errCode: 0,
+        currentSpeed: currentSpeed,
+    }]
+
+    response.vals = {
+        type: 100000,
+        id: 3,
+        data: {
+            subType: 100071,
+            subData: {
+                errCode: 0,
+                opCode: "Special",
+                specialInfo: specialInfo,
+            }
+        }
+    }
+
+    betIntervalInit();
+
+    return response;
+}
 
 function resetResponse() {
     currentCrashValue = parseFloat(1.00);
@@ -406,62 +449,62 @@ function startBetResponse() {
 }
 
 function bettingResponse() {
+    let currentTime = Date.now();
+    let elapsedTime = (currentTime - lastUpdateTime) * currentSpeed; // Apply speed only to remaining time
+    lastUpdateTime = currentTime; // Update last time
 
-    //const progress = currentStep / steps;
+    // Keep previous progress and add new progress from elapsed time
+    let newProgress = elapsedTime / duration;
+    let totalProgress = Math.min(lastProgress + newProgress, 1); // Ensure it never exceeds 100%
 
-    const progress = (Date.now() - startTime) / duration;
-    const easeInProgress = progress * progress; // Quadratic ease-in
+    const easeInProgress = totalProgress * totalProgress; // Quadratic ease-in
 
     // Update the current value based on eased progress
     currentValue = start + range * easeInProgress;
+    lastProgress = totalProgress; // Store the new progress for next iteration
 
-    // Calculate the elapsed time
-    elapsedTime = (Date.now() - startTime) / 1000; // in seconds
-
-    const remainingProgress = (roundCrashValue - start) / range;
-    estimatedTimeToTarget = Math.sqrt(remainingProgress) * duration / 1000; // in seconds
-
-    // Increment the step counter
-    currentStep++;
+    // Calculate estimated time to target
+    const remainingProgress = (roundCrashValue - start) / range - totalProgress;
+    estimatedTimeToTarget = Math.sqrt(Math.max(remainingProgress, 0)) * duration / (1000 * currentSpeed);
 
     let value = parseFloat(currentValue);
     currentCrashValue = value.toFixed(2);
 
     let crash = false;
-
     const numCurrentCrashValue = parseFloat(currentCrashValue);
     const numRoundCrashValue = parseFloat(roundCrashValue);
 
     if (numCurrentCrashValue >= numRoundCrashValue) {
-        console.log("crash???");
+        console.log("crash!!!");
         round += 1;
         roundCount = 1;
         estimatedTimeToTarget = 0;
         crash = true;
+        lastProgress = 0; // Reset progress for new round
+        lastUpdateTime = Date.now(); // Reset time tracking
     }
 
     let response = {
         errCode: 0,
         errMsg: "success",
-        vals: {},
-    }
-
-    response.vals = {
-        type: 100000,
-        id: 3,
-        data: {
-            subType: 100071,
-            subData: {
-                errCode: 0,
-                opCode: "Betting",
-                currentCrashValue: currentCrashValue,
-                currentCrashStatus: crash ? 1 : 0,
+        vals: {
+            type: 100000,
+            id: 3,
+            data: {
+                subType: 100071,
+                subData: {
+                    errCode: 0,
+                    opCode: "Betting",
+                    currentCrashValue: currentCrashValue,
+                    currentCrashStatus: crash ? 1 : 0,
+                }
             }
         }
-    }
+    };
 
     return response;
 }
+
 
 function gameOverResponse() {
     let response = {
@@ -542,18 +585,22 @@ function commonIntervalInit() {
 }
 
 function betIntervalInit() {
+    if (intervalId) clearInterval(intervalId); // Stop previous interval
 
-    setInterval(() => {
-        if (round == 2) {
+    let currentInterval = interval / currentSpeed; // Adjust interval based on speed
+    console.log(currentInterval);
+
+    intervalId = setInterval(() => {
+        if (round === 2) {
             let response = bettingResponse();
             if (wsocket && wsocket.readyState === Websocket.OPEN) {
                 wsocket.send(JSON.stringify(response));
             }
         }
-    }, interval);
+    }, currentInterval);
 }
 
-    // Call your custom function independently
+// Call your custom function independently
 commonIntervalInit();
 betIntervalInit();
 
@@ -561,7 +608,6 @@ server.on("connection", (ws) => {
     wsocket = ws;
 
     ws.on("message", (message) => {
-        console.log("message " + message);
         const jsonContent = JSON.parse(message);
 
         // login request
@@ -617,6 +663,11 @@ server.on("connection", (ws) => {
                 // cash out request
                 if (jsonContent.data.subData.opCode == "CashOut") {
                     let response = cashOutRequest();
+                    ws.send(JSON.stringify(response));
+                }
+
+                if (jsonContent.data.subData.opCode == "Special") {
+                    let response = specialRequest();
                     ws.send(JSON.stringify(response));
                 }
             }
