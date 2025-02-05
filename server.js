@@ -20,14 +20,15 @@ var roundDelayCount = [-1, 4, -1, 2];
 var roundCount = 0;
 var roundCrashValue = 0;
 var currentCrashValue = 0;
-var currentSpeed = 1;
+var currentSpeed = 0;
+var speedMultiplier = [1, 1.5, 2, 3];
 
 var cashOutCondition = false;
 
 
 const start = 1.00;
 const end = 500.00;
-const duration = 50 * 1000; // 150 seconds in milliseconds
+const duration = 30 * 1000; // 150 seconds in milliseconds
 const interval = 10; // update every 10 milliseconds
 const steps = duration / interval;
 const range = end - start;
@@ -81,7 +82,7 @@ function generate() {
 };
 
 function loginRequest() {
-    currentSpeed = 1;
+    currentSpeed = 0;
 
     playerId = generateRandomString(8);
     balance = 200000;
@@ -364,7 +365,7 @@ function specialRequest() {
 
     currentSpeed += 1;
     if (currentSpeed > 3) {
-        currentSpeed = 1;
+        currentSpeed = 0;
     }
 
     let response = {
@@ -375,7 +376,7 @@ function specialRequest() {
 
     specialInfo = [{
         errCode: 0,
-        currentSpeed: currentSpeed,
+        currentSpeed: currentSpeed + 1,
     }]
 
     response.vals = {
@@ -450,7 +451,8 @@ function startBetResponse() {
 
 function bettingResponse() {
     let currentTime = Date.now();
-    let elapsedTime = (currentTime - lastUpdateTime) * currentSpeed; // Apply speed only to remaining time
+    let currentSpeedMultiplier = speedMultiplier[currentSpeed];
+    let elapsedTime = (currentTime - lastUpdateTime) * currentSpeedMultiplier; // Apply speed only to remaining time
     lastUpdateTime = currentTime; // Update last time
 
     // Keep previous progress and add new progress from elapsed time
@@ -465,7 +467,7 @@ function bettingResponse() {
 
     // Calculate estimated time to target
     const remainingProgress = (roundCrashValue - start) / range - totalProgress;
-    estimatedTimeToTarget = Math.sqrt(Math.max(remainingProgress, 0)) * duration / (1000 * currentSpeed);
+    estimatedTimeToTarget = Math.sqrt(Math.max(remainingProgress, 0)) * duration / (1000 * currentSpeedMultiplier);
 
     let value = parseFloat(currentValue);
     currentCrashValue = value.toFixed(2);
@@ -587,7 +589,7 @@ function commonIntervalInit() {
 function betIntervalInit() {
     if (intervalId) clearInterval(intervalId); // Stop previous interval
 
-    let currentInterval = interval / currentSpeed; // Adjust interval based on speed
+    let currentInterval = interval / speedMultiplier[currentSpeed]; // Adjust interval based on speed
     console.log(currentInterval);
 
     intervalId = setInterval(() => {
